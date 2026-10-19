@@ -52,6 +52,13 @@ GRANT
     INSERT ANY TABLE
 TO Rl_adm_agencia;
 
+-- Permiso extra dado a ADMINISTRADOR
+GRANT 
+    CREATE ANY INDEX 
+TO Rl_adm_agencia;
+COMMIT;
+
+
 -------------------------------------------------
 Role asignado Agente de viajes:
 
