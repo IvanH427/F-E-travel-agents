@@ -1,1 +1,206 @@
+1. Administrador
+
+Es el usuario con acceso total al sistema.
+
+Responsabilidades
+Gestionar empleados.
+Crear y modificar roles.
+Registrar datos.
+Consultar reportes.
+Manejar la arquitectura de la base de datos
+-------------------------------------------------
+2. Agente de Viajes
+Es quien atiende directamente a los clientes.
+
+Responsabilidades
+Registrar clientes.
+Gestionar registros
+Consultar disponibilidad de planes.
+-------------------------------------------------
+3. Supervisor
+Tiene funciones de control y análisis.
+
+Responsabilidades
+Revisar ventas.
+Consultar reservas.
+Consultar pagos.
+Ver reportes de destinos más vendidos.
+Ver desempeño de agentes.
+Actualizar registros viejos
+
+-------------------------------------------------
+Role asignado a Administrador:
+
+GRANT
+    CREATE SESSION,
+    CREATE PROCEDURE,
+    CREATE TABLE,
+    CREATE SEQUENCE,
+    CREATE VIEW,
+    CREATE TYPE,
+    CREATE SYNONYM,
+    CREATE INDEXTYPE,
+    CREATE MATERIALIZED VIEW,
+    CREATE TRIGGER,
+    CREATE ROLE,
+    DROP ANY TABLE,
+    ALTER ANY TABLE,
+    CREATE USER,
+    SELECT ANY TABLE,
+    UPDATE ANY TABLE,
+    DELETE ANY TABLE,
+    INSERT ANY TABLE
+TO Rl_adm_agencia;
+
+-- Permiso extra dado a ADMINISTRADOR
+GRANT 
+    CREATE ANY INDEX 
+TO Rl_adm_agencia;
+COMMIT;
+
+
+-------------------------------------------------
+Role asignado Agente de viajes:
+
+GRANT
+    CREATE SESSION,
+    SELECT ANY TABLE,
+    UPDATE ANY TABLE,
+    INSERT ANY TABLE
+TO Rl_agt_agencia;
+
+-------------------------------------------------
+Role asignado a Supervisor:
+
+GRANT
+    CREATE SESSION,
+    SELECT ANY TABLE,
+    UPDATE ANY TABLE,
+    CREATE PROCEDURE,
+    CREATE VIEW
+TO Rl_spv_agencia;
+
+-------------------------------------------------
+Perfil asignado a Administrador:
+
+CREATE PROFILE perfil_avanzado 
+LIMIT
+     -- Número máximo de intentos fallidos de inicio de sesión antes de bloquear la cuenta
+     FAILED_LOGIN_ATTEMPTS 2
+     -- Tiempo de vida de la contraseña: expira cada 30 días
+     PASSWORD_LIFE_TIME 180
+     -- Tiempo que permanece bloqueada la cuenta después de exceder los intentos fallidos (en días)
+     PASSWORD_LOCK_TIME 1/8
+     -- Tiempo mínimo (en días) que debe pasar para poder reutilizar una contraseña anterior
+     PASSWORD_REUSE_TIME 180*3
+     -- Número máximo de sesiones simultáneas permitidas por usuario
+     SESSIONS_PER_USER 2 
+     -- Tiempo de conexión
+     CONNECT_TIME 720
+     ;
+
+-------------------------------------------------
+Perfil asignado a Agente de viajes:
+
+CREATE PROFILE perfil_basico 
+LIMIT
+     FAILED_LOGIN_ATTEMPTS 4
+     PASSWORD_LIFE_TIME 120
+     PASSWORD_LOCK_TIME 1/48 -- 30 minutos
+     PASSWORD_REUSE_TIME 120*3 --3 contraseñas antes de repetir
+     SESSIONS_PER_USER 3 
+     CONNECT_TIME 480
+     ;
+
+-------------------------------------------------
+Perfil asignado a Supervisor:
+
+CREATE PROFILE perfil_medio 
+LIMIT
+     FAILED_LOGIN_ATTEMPTS 3
+     PASSWORD_LIFE_TIME 90
+     PASSWORD_LOCK_TIME 1/12 -- medio día
+     PASSWORD_REUSE_TIME 90*3
+     SESSIONS_PER_USER 2 
+     CONNECT_TIME 600
+     ;
+     
+-------------------------------------------------
+USUARIOS CREADOS:
+
+CREATE USER Administrador IDENTIFIED BY "RtoD_Cle/135";
+
+CREATE USER Agente_viajes IDENTIFIED BY "SteJ_Cle/257";
+
+CREATE USER Supervisor IDENTIFIED BY "RtoS_Cle/379";
+
+-------------------------------------------------
+ROLES CREADOS:
+
+CREATE ROLE Rl_adm_agencia;
+CREATE ROLE Rl_agt_agencia;
+CREATE ROLE Rl_spv_agencia;
+
+-------------------------------------------------
+QUOTAS ASIGNADAS A USUARIOS:
+
+ALTER USER Administrador QUOTA 100M ON DATA;
+ALTER USER Agente_viajes QUOTA 500M ON DATA;
+ALTER USER Supervisor QUOTA 100 ON DATA;
+
+-------------------------------------------------
+ROLES ASIGNADOS A USUARIOS:
+
+GRANT Rl_adm_agencia TO ADMINISTRADOR;
+GRANT Rl_spv_agencia TO SUPERVISOR;
+GRANT Rl_agt_agencia TO AGENTE_VIAJES;
+
+-------------------------------------------------
+PERFILES ASIGNADOS A USUARIOS:
+
+ALTER USER ADMINISTRADOR PROFILE perfil_avanzado;
+ALTER USER SUPERVISOR PROFILE perfil_medio;
+ALTER USER AGENTE_VIAJES PROFILE perfil_basico;
+
+-----------------------------------------------------------------------------
+SELECTS PARA VERIFICAR ASIGNACIONES:
+
+--Buscar roles creados
+SELECT *
+FROM DBA_ROLES
+WHERE ROLE IN (
+    'RL_ADM_AGENCIA',
+    'RL_AGT_AGENCIA',
+    'RL_SPV_AGENCIA'
+);
+
+--QUOTAS asignadas
+SELECT username,
+       tablespace_name,
+       bytes,
+       max_bytes
+FROM dba_ts_quotas
+WHERE username IN ('ADMINISTRADOR', 'AGENTE_VIAJES', 'SUPERVISOR');
+
+--Buscar usuarios creados
+SELECT username,
+       default_tablespace,
+       temporary_tablespace
+FROM dba_users
+WHERE username IN ('ADMINISTRADOR', 'AGENTE_VIAJES', 'SUPERVISOR');
+
+--Si tienes un role asignado, entonces así es como se revisan los privilegios del role
+SELECT *
+FROM ROLE_SYS_PRIVS
+WHERE ROLE IN (
+    'RL_ADM_AGENCIA',
+    'RL_AGT_AGENCIA',
+    'RL_SPV_AGENCIA'
+);
+--Si tienes privilegios
+SELECT *
+FROM DBA_ROLE_PRIVS
+WHERE GRANTEE IN ('ADMINISTRADOR', 'SUPERVISOR', 'AGENTE_VIAJES');
+
+-----------------------------------------------------------------------------
 
