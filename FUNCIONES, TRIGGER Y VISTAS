@@ -49,3 +49,182 @@ INNER JOIN RESERVA R  ON R.ID_RESERVA  = P.ID_RESERVA
 INNER JOIN PAQUETE PQ ON PQ.ID_PAQUETE = R.ID_PAQUETE
 INNER JOIN DESTINO D  ON D.ID_DESTINO  = PQ.ID_DESTINO
 WHERE P.ESTADO_PAGO = 'COMPLETADO';
+
+-- =====================================================================
+CAMBIOS REALIZADOS PARA SEGUNDO AVANCE:
+-- =====================================================================
+
+--TRIGGER PARA APOYAR DESNORMALIZACIÓN
+CREATE OR REPLACE TRIGGER trg_calcular_total
+BEFORE INSERT OR UPDATE
+ON reserva
+FOR EACH ROW
+DECLARE
+    v_precio_paquete paquete.precio%TYPE;
+BEGIN
+
+    SELECT precio
+    INTO v_precio_paquete
+    FROM paquete
+    WHERE id_paquete = :NEW.id_paquete;
+
+    :NEW.total_pagar :=
+        (v_precio_paquete * :NEW.cantidad_personas)
+        * 1.05;
+
+END;
+/
+
+-- =====================================================================
+-- 2. VISTAS MATERIALIZADAS
+-- IDEA GENERAL: una vista normal vuelve a ejecutar su consulta cada vez
+--   que se usa. Una vista materializada guarda el resultado fisicamente
+--   y se consulta como una tabla, por lo que es ideal para reportes con
+--   JOINs y agrupaciones sobre muchos datos.
+--
+-- PARAMETROS USADOS:
+--   BUILD IMMEDIATE       -> se llena en el momento de crearla.
+--   REFRESH COMPLETE      -> al refrescar, se recalcula todo desde cero.
+--   ON DEMAND             -> el refresco ocurre cuando se pide (manual o
+--                            por un job), no en cada COMMIT.
+--   LOGICA de COMPLETE + ON DEMAND (y no FAST / ON COMMIT): el refresco
+--   rapido exige crear "materialized view logs" sobre las tablas base y
+--   ralentiza cada INSERT/UPDATE de la operacion diaria. Para los
+--   volumenes de esta agencia y reportes que no necesitan estar al
+--   segundo, un refresco completo programado es mas simple y no
+--   penaliza las transacciones.
+--
+-- Todas agrupan por MONEDA para no sumar colones con dolares.
+-- =====================================================================
+
+-- 2.1 Ventas por mes y destino
+--     PARA QUE SIRVE: gerencia ve que destinos se venden mas y cuanto.
+--     LOGICA: excluye reservas CANCELADAS (no fueron transacciones finalizadas) y
+--             agrupa por mes con TRUNC(fecha, 'MM').
+
+SELECT * FROM USER_MVIEWS;
+
+CREATE MATERIALIZED VIEW MV_VENTAS_DESTINO_MES
+BUILD IMMEDIATE
+REFRESH COMPLETE ON DEMAND
+AS
+SELECT TRUNC(r.FECHA_RESERVA, 'MM') AS MES,
+       d.ID_DESTINO,
+       d.PAIS,
+       d.CIUDAD,
+       d.MONEDA,
+       COUNT(*)                     AS CANT_RESERVAS,
+       SUM(r.CANTIDAD_PERSONAS)     AS TOTAL_PERSONAS,
+       SUM(r.TOTAL_PAGAR)           AS TOTAL_VENDIDO
+  FROM RESERVA r
+  JOIN PAQUETE p ON p.ID_PAQUETE = r.ID_PAQUETE
+  JOIN DESTINO d ON d.ID_DESTINO = p.ID_DESTINO
+ WHERE r.ESTADO <> 'CANCELADA'
+ GROUP BY TRUNC(r.FECHA_RESERVA, 'MM'), d.ID_DESTINO, d.PAIS, d.CIUDAD, d.MONEDA;
+/* Preguntas a responder:
+¿Cuánto vendimos por destino en enero?
+
+¿Cuántos pasajeros fueron a España en febrero?
+
+¿Cuál fue el destino más vendido en marzo?
+*/
+
+-- 2.2 Pagos por mes, estado y moneda
+--     PARA QUE SIRVE: control de ingresos, pagos pendientes y cancelados.
+--     LOGICA: usa la columna PAGO.MONEDA desnormalizada, por eso lee
+--             SOLO la tabla PAGO, sin ningun JOIN. Aqui se ve el
+--             beneficio directo de la desnormalizacion de la seccion 3.
+CREATE MATERIALIZED VIEW MV_PAGOS_MES
+BUILD IMMEDIATE
+REFRESH COMPLETE  ON DEMAND
+AS
+SELECT TRUNC(FECHA_PAGO, 'MM') AS MES,
+       ESTADO_PAGO,
+       MONEDA,
+       COUNT(*)                AS CANT_PAGOS,
+       SUM(MONTO)              AS TOTAL_MONTO
+  FROM PAGO
+ GROUP BY TRUNC(FECHA_PAGO, 'MM'), ESTADO_PAGO, MONEDA;
+
+
+-- =====================================================================
+-- 3. REFRESCO DE LAS VISTAS MATERIALIZADAS
+-- IDEA:  como son ON DEMAND, hay que indicar cuando se actualizan.
+-- LOGICA: se ofrecen dos formas.
+-- =====================================================================
+
+-- 3.1 Manual: util despues de cargar datos o antes de una presentacion.
+--     'C' = COMPLETE (recalcula todo).
+BEGIN
+    DBMS_MVIEW.REFRESH('MV_VENTAS_DESTINO_MES', 'C');
+    DBMS_MVIEW.REFRESH('MV_PAGOS_MES', 'C');
+END;
+/
+
+-- 3.2 Automatico: un job de DBMS_SCHEDULER las refresca todos los dias
+--     a las 2:00 a.m., hora de baja actividad, para no competir con las
+--     operaciones del dia. Los reportes quedan como maximo un dia
+--     desactualizados, lo cual es aceptable para reportes gerenciales.
+BEGIN
+    DBMS_SCHEDULER.CREATE_JOB(
+        job_name        => 'JOB_REFRESH_MVS_AGENCIA',
+        job_type        => 'PLSQL_BLOCK',
+        job_action      => 'BEGIN DBMS_MVIEW.REFRESH(''MV_VENTAS_DESTINO_MES'',''C''); DBMS_MVIEW.REFRESH(''MV_PAGOS_MES'',''C''); END;',
+        start_date      => SYSTIMESTAMP,
+        repeat_interval => 'FREQ=DAILY;BYHOUR=2;BYMINUTE=0;BYSECOND=0',
+        enabled         => TRUE,
+        comments        => 'Refresco diario de vistas materializadas');
+END;
+/
+
+-- Verificar que el job quedo creado
+SELECT job_name, enabled, repeat_interval FROM user_scheduler_jobs
+ WHERE job_name = 'JOB_REFRESH_MVS_AGENCIA';
+
+
+SELECT *
+FROM MV_PAGOS_MES;
+SELECT *
+FROM MV_VENTAS_DESTINO_MES;
+-- =====================================================================
+-- 4. CONSULTAS DE PRUEBA (para capturas del informe)
+-- =====================================================================
+
+-- Ventas por mes y destino
+SELECT * FROM MV_VENTAS_DESTINO_MES ORDER BY MES, TOTAL_VENDIDO DESC;
+
+-- Mejores clientes por moneda
+-- Pagos por mes
+SELECT * FROM MV_PAGOS_MES ORDER BY MES, ESTADO_PAGO, MONEDA;
+
+-- Clientes frecuentes / inactivos (usa la desnormalizacion de CLIENTE)
+SELECT ID_CLIENTE, NOMBRE, APELLIDO1, TOTAL_RESERVAS, FECHA_ULTIMA_RESERVA
+  FROM CLIENTE
+ WHERE TOTAL_RESERVAS >= 2
+ ORDER BY TOTAL_RESERVAS DESC, FECHA_ULTIMA_RESERVA DESC;
+
+-- Verificar consistencia entre una MV y las tablas base (debe dar 0 filas)
+----------------------------------------------------------
+-- Probar
+----------------------------------------------------------
+
+SELECT
+JOB_NAME,
+STATE,
+REPEAT_INTERVAL
+FROM USER_SCHEDULER_JOBS
+WHERE JOB_NAME='JOB_REFRESH_MVS_AGENCIA';
+
+COMMIT;
+
+BEGIN
+    DBMS_SCHEDULER.RUN_JOB('JOB_REFRESH_MVS_AGENCIA');
+END;
+
+SELECT
+JOB_NAME,
+STATUS,
+ACTUAL_START_DATE
+FROM USER_SCHEDULER_JOB_RUN_DETAILS
+WHERE JOB_NAME='JOB_REFRESH_MVS_AGENCIA'
+ORDER BY LOG_DATE DESC;
