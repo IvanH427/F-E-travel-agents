@@ -220,3 +220,64 @@ CREATE TABLE PAGO (
         REFERENCES RESERVA(ID_RESERVA)
 );
 COMMIT;
+
+-- =====================================================================
+CAMBIOS REALIZADOS PARA SEGUNDO AVANCE:
+-- =====================================================================
+
+-- =====================================================================
+-- 1. DESNORMALIZACION DE PAGO
+-- IDEA:  guardar en PAGO la MONEDA en que esta expresado el monto.
+-- LOGICA: un monto sin moneda es ambiguo (150000 puede ser colones o
+--         dolares). Hoy la moneda solo se sabe recorriendo
+--         PAGO -> RESERVA -> PAQUETE -> DESTINO (3 JOINs). La moneda de
+--         un destino casi nunca cambia, es un dato estable y de lectura
+--         frecuente, por lo que es un buen candidato a desnormalizar.
+--         Ademas permite agrupar pagos por moneda sin ningun JOIN.
+-- =====================================================================
+
+-- 1.1 Agregar la columna
+ALTER TABLE PAGO ADD (MONEDA VARCHAR2(10));
+
+-- 3.2 Carga inicial: copiar la moneda del destino de cada pago
+UPDATE PAGO p
+   SET MONEDA = (SELECT d.MONEDA
+                   FROM RESERVA r
+                   JOIN PAQUETE pq ON pq.ID_PAQUETE = r.ID_PAQUETE
+                   JOIN DESTINO d  ON d.ID_DESTINO  = pq.ID_DESTINO
+                  WHERE r.ID_RESERVA = p.ID_RESERVA);
+COMMIT;
+
+-- 1.3 Mantenimiento automatico (trigger sobre PAGO).
+--     IDEA:  al insertar un pago, la MONEDA se llena sola.
+--     LOGICA: asi la aplicacion o el usuario no tienen que indicarla (ni
+--            pueden equivocarse al escribirla). Es un trigger BEFORE
+--            INSERT porque modifica el valor ANTES de guardar la fila.
+--            Lee RESERVA, PAQUETE y DESTINO (otras tablas), por lo que
+--            no hay problema de tabla mutante.
+--     LIMITACION CONOCIDA: si despues se cambia el paquete de una
+--            reserva a un destino con otra moneda, los pagos ya
+--            registrados conservan la moneda original. Esto es lo
+--            correcto contablemente: el pago se hizo en esa moneda.
+CREATE OR REPLACE TRIGGER TRG_PAGO_DESNORMALIZA
+BEFORE INSERT ON PAGO
+FOR EACH ROW
+BEGIN
+    SELECT d.MONEDA
+      INTO :NEW.MONEDA
+      FROM RESERVA r
+      JOIN PAQUETE pq ON pq.ID_PAQUETE = r.ID_PAQUETE
+      JOIN DESTINO d  ON d.ID_DESTINO  = pq.ID_DESTINO
+     WHERE r.ID_RESERVA = :NEW.ID_RESERVA;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN NULL;   -- si la reserva no existe, la FK de PAGO ya rechaza el insert
+END TRG_PAGO_DESNORMALIZA;
+/
+
+-- 1.4 Verificacion: no deben quedar pagos sin moneda (debe dar 0)
+SELECT COUNT(*) AS PAGOS_SIN_MONEDA FROM PAGO WHERE MONEDA IS NULL;
+
+COMMIT;
+
+ALTER TABLE RESERVA
+MODIFY TOTAL_PAGAR NULL;
