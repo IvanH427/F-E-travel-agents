@@ -58,27 +58,35 @@ GRANT
 TO Rl_adm_agencia;
 COMMIT;
 
-
 -------------------------------------------------
 Role asignado Agente de viajes:
 
-GRANT
-    CREATE SESSION,
-    SELECT ANY TABLE,
-    UPDATE ANY TABLE,
-    INSERT ANY TABLE
-TO Rl_agt_agencia;
+GRANT SELECT                 ON ROL        TO Rl_agt_agencia;
+GRANT SELECT                 ON EMPLEADO   TO Rl_agt_agencia;
+GRANT SELECT, INSERT, UPDATE ON TELEFONO   TO Rl_agt_agencia;
+GRANT SELECT, INSERT, UPDATE ON CLIENTE    TO Rl_agt_agencia;
+GRANT SELECT, INSERT, UPDATE ON DESTINO    TO Rl_agt_agencia;
+GRANT SELECT, INSERT, UPDATE ON TRANSPORTE TO Rl_agt_agencia;
+GRANT SELECT, INSERT, UPDATE ON HOTEL      TO Rl_agt_agencia;
+GRANT SELECT, INSERT, UPDATE ON PAQUETE    TO Rl_agt_agencia;
+GRANT SELECT, INSERT, UPDATE ON SEGURO     TO Rl_agt_agencia;
+GRANT SELECT, INSERT, UPDATE ON RESERVA    TO Rl_agt_agencia;
+GRANT SELECT, INSERT, UPDATE ON PAGO       TO Rl_agt_agencia;
 
 -------------------------------------------------
 Role asignado a Supervisor:
 
-GRANT
-    CREATE SESSION,
-    SELECT ANY TABLE,
-    UPDATE ANY TABLE,
-    CREATE PROCEDURE,
-    CREATE VIEW
-TO Rl_spv_agencia;
+GRANT SELECT, UPDATE ON ROL        TO Rl_spv_agencia;
+GRANT SELECT, UPDATE ON EMPLEADO   TO Rl_spv_agencia;
+GRANT SELECT, UPDATE ON TELEFONO   TO Rl_spv_agencia;
+GRANT SELECT, UPDATE ON CLIENTE    TO Rl_spv_agencia;
+GRANT SELECT, UPDATE ON DESTINO    TO Rl_spv_agencia;
+GRANT SELECT, UPDATE ON TRANSPORTE TO Rl_spv_agencia;
+GRANT SELECT, UPDATE ON HOTEL      TO Rl_spv_agencia;
+GRANT SELECT, UPDATE ON PAQUETE    TO Rl_spv_agencia;
+GRANT SELECT, UPDATE ON SEGURO     TO Rl_spv_agencia;
+GRANT SELECT, UPDATE ON RESERVA    TO Rl_spv_agencia;
+GRANT SELECT, UPDATE ON PAGO       TO Rl_spv_agencia;
 
 -------------------------------------------------
 Perfil asignado a Administrador:
